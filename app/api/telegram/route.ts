@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import axios from "axios";
 
+// Telegram token environment variable
 const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN!;
 if (!TELEGRAM_TOKEN) {
   throw new Error("TELEGRAM_TOKEN is not defined");
@@ -8,25 +9,7 @@ if (!TELEGRAM_TOKEN) {
 
 const TELEGRAM_API_BASE = `https://api.telegram.org/bot${TELEGRAM_TOKEN}`;
 
-interface TelegramMessage {
-  chat: {
-    id: number;
-  };
-  text?: string;
-  voice?: {
-    file_id: string;
-  };
-}
-
-interface CallbackQuery {
-  id: string;
-  data: string;
-  message: {
-    chat: {
-      id: number;
-    };
-  };
-}
+// Helpers
 
 async function telegramSendMessage(
   chat_id: number,
@@ -68,12 +51,14 @@ async function sendMainMenu(chatId: number): Promise<void> {
 export async function POST(req: NextRequest): Promise<NextResponse> {
   const body = await req.json();
 
+  // Handle button presses / callback queries
   if (body.callback_query) {
-    const callbackQuery = body.callback_query as CallbackQuery;
+    const callbackQuery = body.callback_query;
     const chatId = callbackQuery.message.chat.id;
     const data = callbackQuery.data;
     const callbackId = callbackQuery.id;
 
+    // Acknowledge callback
     await telegramAnswerCallback(callbackId);
 
     switch (data) {
@@ -92,13 +77,15 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         break;
       default:
         await sendMainMenu(chatId);
+        break;
     }
 
     return NextResponse.json({ ok: true });
   }
 
+  // Handle messages
   if (body.message) {
-    const msg = body.message as TelegramMessage;
+    const msg = body.message;
     const chatId = msg.chat.id;
 
     if (msg.text?.startsWith("/start")) {
@@ -106,7 +93,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ ok: true });
     }
 
+    // Reminder pattern “HH:MM Task”
     if (/^\d{2}:\d{2}\s+.+/.test(msg.text ?? "")) {
+      // Forward to reminders module
       await axios.post(
         `${process.env.NEXT_PUBLIC_BASE_URL}/api/telegram/reminders`,
         { msg }
@@ -114,6 +103,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ ok: true });
     }
 
+    // Decision question detection (contains “?”)
     if (msg.text && msg.text.includes("?")) {
       await axios.post(
         `${process.env.NEXT_PUBLIC_BASE_URL}/api/telegram/decisions`,
@@ -122,6 +112,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ ok: true });
     }
 
+    // Notes: text or voice
     if (msg.text || msg.voice) {
       await axios.post(
         `${process.env.NEXT_PUBLIC_BASE_URL}/api/telegram/notes`,

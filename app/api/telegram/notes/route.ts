@@ -2,10 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import TelegramBot from "node-telegram-bot-api";
 import axios from "axios";
 
-const TELEGRAM_TOKEN = process.env.TOKEN_ID!;
+const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN!;
 const ASSEMBLY_KEY = process.env.ASSEMBLY_AI!;
 if (!TELEGRAM_TOKEN || !ASSEMBLY_KEY) {
-  throw new Error("Missing required environment variables.");
+  throw new Error("Missing TELEGRAM_TOKEN or ASSEMBLY_AI");
 }
 
 const bot = new TelegramBot(TELEGRAM_TOKEN, { polling: false });
@@ -22,17 +22,30 @@ async function transcribeVoice(fileUrl: string): Promise<string | null> {
   try {
     const { data } = await axios.post(
       "https://api.assemblyai.com/v2/transcript",
-      { audio_url: fileUrl, language_detection: true, punctuate: true },
-      { headers: { authorization: ASSEMBLY_KEY, "content-type": "application/json" } }
+      {
+        audio_url: fileUrl,
+        language_detection: true,
+        punctuate: true,
+      },
+      {
+        headers: { authorization: ASSEMBLY_KEY, "content-type": "application/json" },
+      }
     );
 
     const { id } = data;
     for (let i = 0; i < 30; i++) {
-      const { data: pollData } = await axios.get(`https://api.assemblyai.com/v2/transcript/${id}`, {
-        headers: { authorization: ASSEMBLY_KEY },
-      });
-      if (pollData.status === "completed") return pollData.text;
-      if (pollData.status === "error") return null;
+      const { data: pollData } = await axios.get(
+        `https://api.assemblyai.com/v2/transcript/${id}`,
+        {
+          headers: { authorization: ASSEMBLY_KEY },
+        }
+      );
+      if (pollData.status === "completed") {
+        return pollData.text;
+      }
+      if (pollData.status === "error") {
+        return null;
+      }
       await new Promise((resolve) => setTimeout(resolve, 3000));
     }
     return null;
@@ -42,10 +55,10 @@ async function transcribeVoice(fileUrl: string): Promise<string | null> {
   }
 }
 
-export async function POST(req: NextRequest) {
+export async function POST(req: NextRequest): Promise<NextResponse> {
   try {
     const { msg } = await req.json();
-    const chatId = msg.chat.id;
+    const chatId = msg.chat.id as number;
 
     if (msg.voice) {
       const fileInfo = await bot.getFile(msg.voice.file_id);
@@ -55,15 +68,23 @@ export async function POST(req: NextRequest) {
       const text = await transcribeVoice(fileUrl);
 
       if (text) {
-        userNotes[chatId] = userNotes[chatId] || [];
-        userNotes[chatId].push({ text, timestamp: new Date().toISOString(), type: "voice" });
+        userNotes[chatId] ??= [];
+        userNotes[chatId].push({
+          text,
+          timestamp: new Date().toISOString(),
+          type: "voice",
+        });
         await bot.sendMessage(chatId, `📝 Voice note saved:\n${text}`);
       } else {
         await bot.sendMessage(chatId, "❌ Transcription failed. Please try again.");
       }
     } else if (msg.text) {
-      userNotes[chatId] = userNotes[chatId] || [];
-      userNotes[chatId].push({ text: msg.text, timestamp: new Date().toISOString(), type: "text" });
+      userNotes[chatId] ??= [];
+      userNotes[chatId].push({
+        text: msg.text,
+        timestamp: new Date().toISOString(),
+        type: "text",
+      });
       await bot.sendMessage(chatId, `📝 Text note saved:\n${msg.text}`);
     } else {
       await bot.sendMessage(chatId, "❌ No valid message received.");
