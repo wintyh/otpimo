@@ -1,9 +1,11 @@
+// app/api/telegram/notes/route.ts
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
 import TelegramBot from "node-telegram-bot-api";
 import axios from "axios";
+import { redis } from "@/lib/redis";
 
 const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN!;
 const ASSEMBLY_KEY = process.env.ASSEMBLY_AI!;
@@ -19,14 +21,11 @@ interface Note {
   type: "voice" | "text";
 }
 
-const userNotes: Record<number, Note[]> = {};
-
 interface TelegramMessage {
   chat: { id: number };
   text?: string;
   voice?: { file_id: string };
 }
-
 interface TelegramRequestBody {
   msg: TelegramMessage;
 }
@@ -50,19 +49,13 @@ async function transcribeVoice(fileUrl: string): Promise<string | null> {
 
     const id = data.id;
     for (let i = 0; i < 30; i++) {
-      const { data: pollData } = await axios.get(
+      const { data: poll } = await axios.get(
         `https://api.assemblyai.com/v2/transcript/${id}`,
-        {
-          headers: { authorization: ASSEMBLY_KEY },
-        }
+        { headers: { authorization: ASSEMBLY_KEY } }
       );
-      if (pollData.status === "completed") {
-        return pollData.text;
-      }
-      if (pollData.status === "error") {
-        return null;
-      }
-      await new Promise((resolve) => setTimeout(resolve, 3000));
+      if (poll.status === "completed") return poll.text as string;
+      if (poll.status === "error") return null;
+      await new Promise((r) => setTimeout(r, 3000));
     }
     return null;
   } catch (err) {
@@ -82,32 +75,37 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   const msg = body.msg;
   const chatId = msg.chat.id;
+  const key = `tg:${chatId}:notes`;
 
   try {
     if (msg.voice) {
       const fileInfo = await bot.getFile(msg.voice.file_id);
+      if (!fileInfo.file_path) throw new Error("No file_path from Telegram");
       const fileUrl = `https://api.telegram.org/file/bot${TELEGRAM_TOKEN}/${fileInfo.file_path}`;
 
       await bot.sendMessage(chatId, "🎤 Transcribing your voice note...");
       const text = await transcribeVoice(fileUrl);
       if (text) {
-        userNotes[chatId] ??= [];
-        userNotes[chatId].push({
+        const note: Note = {
           text,
           timestamp: new Date().toISOString(),
           type: "voice",
-        });
+        };
+        if (redis) await redis.lpush(key, JSON.stringify(note));
         await bot.sendMessage(chatId, `📝 Voice note saved:\n${text}`);
       } else {
-        await bot.sendMessage(chatId, "❌ Transcription failed. Please try again.");
+        await bot.sendMessage(
+          chatId,
+          "❌ Transcription failed. Please try again."
+        );
       }
     } else if (msg.text) {
-      userNotes[chatId] ??= [];
-      userNotes[chatId].push({
+      const note: Note = {
         text: msg.text,
         timestamp: new Date().toISOString(),
         type: "text",
-      });
+      };
+      if (redis) await redis.lpush(key, JSON.stringify(note));
       await bot.sendMessage(chatId, `📝 Text note saved:\n${msg.text}`);
     } else {
       await bot.sendMessage(chatId, "❌ No valid message received.");

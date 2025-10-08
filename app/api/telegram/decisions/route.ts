@@ -6,9 +6,10 @@ import TelegramBot from "node-telegram-bot-api";
 import OpenAI from "openai";
 
 const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN!;
-const OPENAI_KEY = process.env.OPENAI_API_WORKSHOP_KEY!;
+const OPENAI_KEY =
+  process.env.OPENAI_API_KEY ?? process.env.OPENAI_API_WORKSHOP_KEY!;
 if (!TELEGRAM_TOKEN || !OPENAI_KEY) {
-  throw new Error("Missing TELEGRAM_TOKEN or OPENAI_API_WORKSHOP_KEY");
+  throw new Error("Missing TELEGRAM_TOKEN or OPENAI_API_KEY");
 }
 
 const bot = new TelegramBot(TELEGRAM_TOKEN, { polling: false });
@@ -16,9 +17,8 @@ const openai = new OpenAI({ apiKey: OPENAI_KEY });
 
 interface TelegramMessage {
   chat: { id: number };
-  text: string;
+  text?: string;
 }
-
 interface TelegramRequestBody {
   msg: TelegramMessage;
 }
@@ -32,9 +32,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ ok: false, error: "Bad JSON" });
   }
 
-  const msg = body.msg;
-  const chatId = msg.chat.id;
-  const text = msg.text;
+  const { chat, text } = body.msg;
+  const chatId = chat.id;
+
+  if (!text) {
+    await bot.sendMessage(chatId, "❌ Please send a question to evaluate.");
+    return NextResponse.json({ ok: false, error: "No text" });
+  }
 
   try {
     await bot.sendMessage(chatId, "🤔 Thinking about your decision...");
@@ -51,14 +55,20 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       ],
     });
 
-    const advice = completion.choices[0].message?.content ?? "No advice available.";
+    const advice =
+      completion.choices[0].message?.content ?? "No advice available.";
+
+    // FIX: use backticks for template string
     await bot.sendMessage(chatId, `🧠 Decision advice:\n\n${advice}`);
 
     return NextResponse.json({ ok: true });
   } catch (e) {
     console.error("Error in decisions route:", e);
     try {
-      await bot.sendMessage(chatId, "❌ Sorry, I couldn’t generate advice at the moment.");
+      await bot.sendMessage(
+        chatId,
+        "❌ Sorry, I couldn’t generate advice at the moment."
+      );
     } catch (sendErr) {
       console.error("Failed error-message send:", sendErr);
     }
