@@ -1,6 +1,13 @@
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+export const config = {
+  api: {
+    bodyParser: true,
+    externalResolver: true, // avoids Next.js internal redirect responses
+  },
+};
+
 import { NextRequest, NextResponse } from "next/server";
 import TelegramBot from "node-telegram-bot-api";
 import OpenAI from "openai";
