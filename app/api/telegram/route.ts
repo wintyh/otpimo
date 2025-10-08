@@ -1,6 +1,14 @@
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+export const config = {
+  api: {
+    bodyParser: true,
+    externalResolver: true, // avoids Next.js internal redirect responses
+  },
+};
+
+
 import { NextRequest, NextResponse } from "next/server";
 import axios from "axios";
 
