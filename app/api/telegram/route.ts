@@ -1,4 +1,3 @@
-// /app/api/telegram/webhook/route.ts   (or wherever your route is)
 import { NextRequest, NextResponse } from "next/server";
 import axios from "axios";
 
@@ -9,13 +8,32 @@ if (!TELEGRAM_TOKEN) {
 
 const TELEGRAM_API_BASE = `https://api.telegram.org/bot${TELEGRAM_TOKEN}`;
 
-// Helper: send a message via Telegram Bot API
+interface TelegramMessage {
+  chat: {
+    id: number;
+  };
+  text?: string;
+  voice?: {
+    file_id: string;
+  };
+}
+
+interface CallbackQuery {
+  id: string;
+  data: string;
+  message: {
+    chat: {
+      id: number;
+    };
+  };
+}
+
 async function telegramSendMessage(
   chat_id: number,
   text: string,
-  opts?: { [key: string]: any }
-) {
-  const payload: any = {
+  opts?: Record<string, unknown>
+): Promise<void> {
+  const payload: Record<string, unknown> = {
     chat_id,
     text,
     ...opts,
@@ -23,20 +41,18 @@ async function telegramSendMessage(
   await axios.post(`${TELEGRAM_API_BASE}/sendMessage`, payload);
 }
 
-// Helper: answer callback query (so Telegram UI stops “loading” on button press)
 async function telegramAnswerCallback(
   callback_query_id: string,
   text?: string
-) {
-  const payload: any = {
+): Promise<void> {
+  const payload: Record<string, unknown> = {
     callback_query_id,
   };
   if (text) payload.text = text;
   await axios.post(`${TELEGRAM_API_BASE}/answerCallbackQuery`, payload);
 }
 
-// Sends the main menu with inline keyboard
-async function sendMainMenu(chatId: number) {
+async function sendMainMenu(chatId: number): Promise<void> {
   const opts = {
     reply_markup: {
       inline_keyboard: [
@@ -49,16 +65,15 @@ async function sendMainMenu(chatId: number) {
   await telegramSendMessage(chatId, "Hi! I'm Optimo 🤖. Choose a mode:", opts);
 }
 
-export async function POST(req: NextRequest) {
+export async function POST(req: NextRequest): Promise<NextResponse> {
   const body = await req.json();
 
-  // If it’s a callback query (button press)
   if (body.callback_query) {
-    const chatId = body.callback_query.message.chat.id;
-    const data = body.callback_query.data;
-    const callbackId = body.callback_query.id;
+    const callbackQuery = body.callback_query as CallbackQuery;
+    const chatId = callbackQuery.message.chat.id;
+    const data = callbackQuery.data;
+    const callbackId = callbackQuery.id;
 
-    // Optionally, answer the callback to remove loading UI
     await telegramAnswerCallback(callbackId);
 
     switch (data) {
@@ -82,18 +97,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true });
   }
 
-  // If it's a message (text or voice, etc.)
   if (body.message) {
-    const msg = body.message;
+    const msg = body.message as TelegramMessage;
     const chatId = msg.chat.id;
 
-    // /start command
     if (msg.text?.startsWith("/start")) {
       await sendMainMenu(chatId);
       return NextResponse.json({ ok: true });
     }
 
-    // Detect reminders like "HH:MM Task"
     if (/^\d{2}:\d{2}\s+.+/.test(msg.text ?? "")) {
       await axios.post(
         `${process.env.NEXT_PUBLIC_BASE_URL}/api/telegram/reminders`,
@@ -102,7 +114,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true });
     }
 
-    // Detect decisions (a question mark)
     if (msg.text && msg.text.includes("?")) {
       await axios.post(
         `${process.env.NEXT_PUBLIC_BASE_URL}/api/telegram/decisions`,
@@ -111,7 +122,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true });
     }
 
-    // Everything else, treat as notes
     if (msg.text || msg.voice) {
       await axios.post(
         `${process.env.NEXT_PUBLIC_BASE_URL}/api/telegram/notes`,
@@ -121,6 +131,5 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Fallback response
   return NextResponse.json({ ok: true });
 }
