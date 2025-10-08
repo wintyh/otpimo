@@ -1,3 +1,7 @@
+// notes/route.ts
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
 import { NextRequest, NextResponse } from "next/server";
 import TelegramBot from "node-telegram-bot-api";
 import axios from "axios";
@@ -28,11 +32,14 @@ async function transcribeVoice(fileUrl: string): Promise<string | null> {
         punctuate: true,
       },
       {
-        headers: { authorization: ASSEMBLY_KEY, "content-type": "application/json" },
+        headers: {
+          authorization: ASSEMBLY_KEY,
+          "content-type": "application/json",
+        },
       }
     );
 
-    const { id } = data;
+    const id = data.id;
     for (let i = 0; i < 30; i++) {
       const { data: pollData } = await axios.get(
         `https://api.assemblyai.com/v2/transcript/${id}`,
@@ -56,17 +63,24 @@ async function transcribeVoice(fileUrl: string): Promise<string | null> {
 }
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
+  let body: any;
   try {
-    const { msg } = await req.json();
-    const chatId = msg.chat.id as number;
+    body = await req.json();
+  } catch (err) {
+    console.error("Bad JSON in notes route:", err);
+    return NextResponse.json({ ok: false, error: "Bad JSON" });
+  }
 
+  const msg = body.msg;
+  const chatId = msg.chat.id as number;
+
+  try {
     if (msg.voice) {
       const fileInfo = await bot.getFile(msg.voice.file_id);
       const fileUrl = `https://api.telegram.org/file/bot${TELEGRAM_TOKEN}/${fileInfo.file_path}`;
 
       await bot.sendMessage(chatId, "🎤 Transcribing your voice note...");
       const text = await transcribeVoice(fileUrl);
-
       if (text) {
         userNotes[chatId] ??= [];
         userNotes[chatId].push({
@@ -91,8 +105,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
 
     return NextResponse.json({ ok: true });
-  } catch (error) {
-    console.error("Error in /notes route:", error);
+  } catch (err) {
+    console.error("Error in notes route:", err);
     return NextResponse.json({ ok: false, error: "Internal error" });
   }
 }
