@@ -1,48 +1,54 @@
-// app/api/telegram/cron/route.ts
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-import { NextResponse } from "next/server";
-import TelegramBot from "node-telegram-bot-api";
-import { redis } from "@/lib/redis";
+import { NextRequest, NextResponse } from "next/server";
+import axios from "axios";
+import { DateTime } from "luxon";
 
+// Example in-memory reminder store (replace with Redis/DB in production)
+const reminders: {
+  chatId: number;
+  task: string;
+  time: string;
+  notified?: boolean;
+}[] = [];
+
+// Telegram API setup
 const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN!;
-if (!TELEGRAM_TOKEN) throw new Error("Missing TELEGRAM_TOKEN");
+const TELEGRAM_API = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`;
 
-const bot = new TelegramBot(TELEGRAM_TOKEN, { polling: false });
+if (!TELEGRAM_TOKEN) {
+  throw new Error("Missing TELEGRAM_TOKEN in environment variables");
+}
 
-export async function GET() {
-  if (!redis) return NextResponse.json({ ok: false, error: "No Redis" });
+export async function POST(req: NextRequest) {
+  try {
+    const now = DateTime.now().setZone("Asia/Singapore");
 
-  const now = Date.now();
+    // Filter reminders that are due
+    const dueReminders = reminders.filter((r) => {
+      if (r.notified) return false;
+      const reminderTime = DateTime.fromFormat(r.time, "h:mm a", {
+        zone: "Asia/Singapore",
+      });
+      return reminderTime <= now;
+    });
 
-  // Fetch all reminders due up to now using lowercase zrange
-  const due = await redis.zrange("tg:reminders", 0, now);
-  if (!due.length) return NextResponse.json({ ok: true, sent: 0 });
-
-  let sent = 0;
-
-  for (const member of due) {
-    try {
-      // Type assertion because Redis returns unknown[]
-      const memberStr = member as string;
-      const r = JSON.parse(memberStr) as {
-        id: string;
-        chatId: number;
-        task: string;
-        dueMs: number;
-      };
-
-      // Send reminder
-      await bot.sendMessage(r.chatId, `⏰ Reminder: ${r.task}`);
-      sent++;
-
-      // Remove from the set so we don’t resend
-      await redis.zrem("tg:reminders", memberStr);
-    } catch (e) {
-      console.error("Cron send error:", e);
+    // Send due reminders
+    for (const reminder of dueReminders) {
+      await axios.post(TELEGRAM_API, {
+        chat_id: reminder.chatId,
+        text: `⏰ Reminder: ${reminder.task}`,
+      });
+      reminder.notified = true;
     }
-  }
 
-  return NextResponse.json({ ok: true, sent });
+    return NextResponse.json({
+      ok: true,
+      message: `Processed ${dueReminders.length} due reminders.`,
+    });
+  } catch (error) {
+    console.error("Error in /cron:", error);
+    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+  }
 }

@@ -2,76 +2,49 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
-import TelegramBot from "node-telegram-bot-api";
-import OpenAI from "openai";
+import axios from "axios";
 
 const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN!;
-const OPENAI_KEY =
-  process.env.OPENAI_API_KEY ?? process.env.OPENAI_API_WORKSHOP_KEY!;
-if (!TELEGRAM_TOKEN || !OPENAI_KEY) {
-  throw new Error("Missing TELEGRAM_TOKEN or OPENAI_API_KEY");
+const TELEGRAM_API = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`;
+
+// Ensure token is present
+if (!TELEGRAM_TOKEN) {
+  throw new Error("Missing TELEGRAM_TOKEN in environment variables");
 }
 
-const bot = new TelegramBot(TELEGRAM_TOKEN, { polling: false });
-const openai = new OpenAI({ apiKey: OPENAI_KEY });
-
-interface TelegramMessage {
-  chat: { id: number };
-  text?: string;
-}
-interface TelegramRequestBody {
-  msg: TelegramMessage;
-}
-
-export async function POST(req: NextRequest): Promise<NextResponse> {
-  let body: TelegramRequestBody;
+export async function POST(req: NextRequest) {
   try {
-    body = await req.json();
-  } catch (err) {
-    console.error("Bad JSON in decisions route:", err);
-    return NextResponse.json({ ok: false, error: "Bad JSON" });
-  }
+    const body = await req.json();
+    const message = body.message;
+    const chatId = message?.chat?.id;
+    const text = message?.text;
 
-  const { chat, text } = body.msg;
-  const chatId = chat.id;
+    if (!chatId || !text) {
+      return NextResponse.json(
+        { error: "Invalid request: chatId or text missing" },
+        { status: 400 }
+      );
+    }
 
-  if (!text) {
-    await bot.sendMessage(chatId, "❌ Please send a question to evaluate.");
-    return NextResponse.json({ ok: false, error: "No text" });
-  }
+    // Decision logic
+    let replyText = "";
+    if (text.toLowerCase().includes("yes")) {
+      replyText = "Great! Let’s proceed with your decision ✅";
+    } else if (text.toLowerCase().includes("no")) {
+      replyText = "No worries! You can revisit this later 🙂";
+    } else {
+      replyText = "Please reply with 'Yes' or 'No' to continue.";
+    }
 
-  try {
-    await bot.sendMessage(chatId, "🤔 Thinking about your decision...");
-
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o",
-      messages: [
-        {
-          role: "system",
-          content:
-            "You are a decision-making assistant. Provide clear, balanced advice in 2–3 short paragraphs.",
-        },
-        { role: "user", content: text },
-      ],
+    // Send reply to Telegram
+    await axios.post(TELEGRAM_API, {
+      chat_id: chatId,
+      text: replyText,
     });
 
-    const advice =
-      completion.choices[0].message?.content ?? "No advice available.";
-
-    // FIX: use backticks for template string
-    await bot.sendMessage(chatId, `🧠 Decision advice:\n\n${advice}`);
-
     return NextResponse.json({ ok: true });
-  } catch (e) {
-    console.error("Error in decisions route:", e);
-    try {
-      await bot.sendMessage(
-        chatId,
-        "❌ Sorry, I couldn’t generate advice at the moment."
-      );
-    } catch (sendErr) {
-      console.error("Failed error-message send:", sendErr);
-    }
-    return NextResponse.json({ ok: false, error: "Internal error" });
+  } catch (error) {
+    console.error("Error in /decisions:", error);
+    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
   }
 }

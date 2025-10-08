@@ -1,4 +1,4 @@
-// app/api/telegram/notes/route.ts
+// === file: /app/api/telegram/notes/route.ts ===
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -9,6 +9,7 @@ import { redis } from "@/lib/redis";
 
 const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN!;
 const ASSEMBLY_KEY = process.env.ASSEMBLY_AI!;
+
 if (!TELEGRAM_TOKEN || !ASSEMBLY_KEY) {
   throw new Error("Missing TELEGRAM_TOKEN or ASSEMBLY_AI");
 }
@@ -26,6 +27,7 @@ interface TelegramMessage {
   text?: string;
   voice?: { file_id: string };
 }
+
 interface TelegramRequestBody {
   msg: TelegramMessage;
 }
@@ -85,6 +87,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
       await bot.sendMessage(chatId, "🎤 Transcribing your voice note...");
       const text = await transcribeVoice(fileUrl);
+
       if (text) {
         const note: Note = {
           text,
