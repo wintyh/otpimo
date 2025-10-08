@@ -1,4 +1,3 @@
-// decisions/route.ts
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -15,8 +14,17 @@ if (!TELEGRAM_TOKEN || !OPENAI_KEY) {
 const bot = new TelegramBot(TELEGRAM_TOKEN, { polling: false });
 const openai = new OpenAI({ apiKey: OPENAI_KEY });
 
+interface TelegramMessage {
+  chat: { id: number };
+  text: string;
+}
+
+interface TelegramRequestBody {
+  msg: TelegramMessage;
+}
+
 export async function POST(req: NextRequest): Promise<NextResponse> {
-  let body: any;
+  let body: TelegramRequestBody;
   try {
     body = await req.json();
   } catch (err) {
@@ -25,8 +33,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   const msg = body.msg;
-  const chatId = msg.chat.id as number;
-  const text = msg.text as string;
+  const chatId = msg.chat.id;
+  const text = msg.text;
 
   try {
     await bot.sendMessage(chatId, "🤔 Thinking about your decision...");
@@ -43,7 +51,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       ],
     });
 
-    const advice = completion.choices[0].message.content ?? "No advice available.";
+    const advice = completion.choices[0].message?.content ?? "No advice available.";
     await bot.sendMessage(chatId, `🧠 Decision advice:\n\n${advice}`);
 
     return NextResponse.json({ ok: true });

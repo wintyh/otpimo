@@ -1,4 +1,3 @@
-// reminders/route.ts
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -11,13 +10,22 @@ if (!TELEGRAM_TOKEN) {
 }
 const bot = new TelegramBot(TELEGRAM_TOKEN, { polling: false });
 
+interface TelegramMessage {
+  chat: { id: number };
+  text: string;
+}
+
+interface TelegramRequestBody {
+  msg: TelegramMessage;
+}
+
 const reminders: Record<
   string,
   { chatId: number; message: string; time: string }
 > = {};
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
-  let body: any;
+  let body: TelegramRequestBody;
   try {
     body = await req.json();
   } catch (err) {
@@ -26,14 +34,15 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   const msg = body.msg;
-  const chatId = msg.chat.id as number;
-  const text = msg.text as string;
+  const chatId = msg.chat.id;
+  const text = msg.text;
 
   const parts = text.split(" ");
   if (parts.length < 2) {
     await bot.sendMessage(chatId, "❌ Invalid format. Use `HH:MM Task`");
     return NextResponse.json({ ok: false });
   }
+
   const time = parts[0];
   const task = parts.slice(1).join(" ");
   const reminderId = `${chatId}-${Date.now()}`;
@@ -63,7 +72,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     delay += 24 * 60 * 60 * 1000;
   }
 
-  // WARNING: This timeout may not survive serverless function lifecycle.
   setTimeout(async () => {
     try {
       await bot.sendMessage(chatId, `⏰ Reminder: ${task}`);

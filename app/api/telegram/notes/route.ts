@@ -1,4 +1,3 @@
-// notes/route.ts
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -21,6 +20,16 @@ interface Note {
 }
 
 const userNotes: Record<number, Note[]> = {};
+
+interface TelegramMessage {
+  chat: { id: number };
+  text?: string;
+  voice?: { file_id: string };
+}
+
+interface TelegramRequestBody {
+  msg: TelegramMessage;
+}
 
 async function transcribeVoice(fileUrl: string): Promise<string | null> {
   try {
@@ -63,7 +72,7 @@ async function transcribeVoice(fileUrl: string): Promise<string | null> {
 }
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
-  let body: any;
+  let body: TelegramRequestBody;
   try {
     body = await req.json();
   } catch (err) {
@@ -72,7 +81,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   const msg = body.msg;
-  const chatId = msg.chat.id as number;
+  const chatId = msg.chat.id;
 
   try {
     if (msg.voice) {

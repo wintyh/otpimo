@@ -1,4 +1,3 @@
-// route.ts (main webhook entry)
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -16,25 +15,28 @@ interface TelegramMessage {
   text?: string;
   voice?: { file_id: string };
 }
+
 interface CallbackQuery {
   id: string;
   data: string;
   message: { chat: { id: number } };
 }
 
+interface TelegramRequestBody {
+  message?: TelegramMessage;
+  callback_query?: CallbackQuery;
+}
+
 async function telegramSendMessage(
   chat_id: number,
   text: string,
-  opts?: Record<string, unknown>
+  opts?: { parse_mode?: string; reply_markup?: unknown }
 ): Promise<void> {
-  const payload: Record<string, unknown> = { chat_id, text, ...opts };
+  const payload = { chat_id, text, ...opts };
   await axios.post(`${TELEGRAM_API_BASE}/sendMessage`, payload);
 }
 
-async function telegramAnswerCallback(
-  callback_query_id: string,
-  text?: string
-): Promise<void> {
+async function telegramAnswerCallback(callback_query_id: string, text?: string): Promise<void> {
   const payload: Record<string, unknown> = { callback_query_id };
   if (text) payload.text = text;
   await axios.post(`${TELEGRAM_API_BASE}/answerCallbackQuery`, payload);
@@ -54,22 +56,19 @@ async function sendMainMenu(chatId: number): Promise<void> {
 }
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
-  // Debug to catch redirect issues or missing invocation
   console.log("Telegram webhook invoked at path:", req.nextUrl.pathname, "URL:", req.url);
   console.log("Headers:", JSON.stringify(Object.fromEntries(req.headers)));
 
-  let body: any;
+  let body: TelegramRequestBody;
   try {
     body = await req.json();
   } catch (err) {
     console.error("Failed to parse JSON body:", err);
-    // Return 200 to avoid Telegram disabling webhook
     return NextResponse.json({ ok: false, error: "Bad JSON" });
   }
 
-  // Handle callback_query (inline button presses)
   if (body.callback_query) {
-    const callbackQuery = body.callback_query as CallbackQuery;
+    const callbackQuery = body.callback_query;
     const chatId = callbackQuery.message.chat.id;
     const data = callbackQuery.data;
     const callbackId = callbackQuery.id;
@@ -93,11 +92,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ ok: true });
   }
 
-  // Handle normal messages
   if (body.message) {
-    const msg = body.message as TelegramMessage;
+    const msg = body.message;
     const chatId = msg.chat.id;
-
     const txt = msg.text?.trim();
 
     if (txt && txt.toLowerCase() === "/start") {
@@ -105,35 +102,21 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ ok: true });
     }
 
-    // If message matches “HH:MM <task>”, treat as reminder
     if (/^\d{2}:\d{2}\s+.+/.test(txt ?? "")) {
-      // Forward to reminders route
-      await axios.post(
-        `${process.env.NEXT_PUBLIC_BASE_URL}/api/telegram/reminders`,
-        { msg }
-      );
+      await axios.post(`${process.env.NEXT_PUBLIC_BASE_URL}/api/telegram/reminders`, { msg });
       return NextResponse.json({ ok: true });
     }
 
-    // Decision question detection (has “?”)
     if (txt && txt.includes("?")) {
-      await axios.post(
-        `${process.env.NEXT_PUBLIC_BASE_URL}/api/telegram/decisions`,
-        { msg }
-      );
+      await axios.post(`${process.env.NEXT_PUBLIC_BASE_URL}/api/telegram/decisions`, { msg });
       return NextResponse.json({ ok: true });
     }
 
-    // Otherwise treat as note (text or voice)
     if (msg.text || msg.voice) {
-      await axios.post(
-        `${process.env.NEXT_PUBLIC_BASE_URL}/api/telegram/notes`,
-        { msg }
-      );
+      await axios.post(`${process.env.NEXT_PUBLIC_BASE_URL}/api/telegram/notes`, { msg });
       return NextResponse.json({ ok: true });
     }
   }
 
-  // Return default 200 so Telegram doesn’t disable
   return NextResponse.json({ ok: true });
 }
