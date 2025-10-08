@@ -1,9 +1,0 @@
-{
-  "redirects": [
-    {
-      "source": "/api/telegram",
-      "destination": "/api/telegram/",
-      "permanent": true
-    }
-  ]
-}
